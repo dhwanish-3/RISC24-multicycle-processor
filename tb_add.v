@@ -2,6 +2,8 @@
 
 // 0000 001 010 100 0 00 => 02a0
 // 0000 100 001 001 0 00 => 0848
+// 0000 110 111 111 0 10 => 0dfa
+// 0000 111 111 111 0 00 => 0ffa
 
 // Machine code
 // 02a0
@@ -20,47 +22,15 @@ module tb_add;
         reset <= 1;
         #21;
         reset <= 0;
-        // #21;
-        // reset <= 1;
-        // #21;
-        // reset <= 0;
-        // #21;
     end
-
+    integer i;
     initial
     begin
-        clk <= 1;
-        #5;
         clk <= 0;
-        #5;
-        clk <= 1;
-        #5;
-        clk <= 0;
-        #5;
-        clk <= 1;
-        #5;
-        clk <= 0;
-        #5;
-        clk <= 1;
-        #5;
-        clk <= 0;
-        #5;
-        clk <= 1;
-        #5;
-        clk <= 0;
-        #5;
-        clk <= 1;
-        #5;
-        clk <= 0;
-        #5;
-        clk <= 1;
-        #5;
-        clk <= 0;
-        #5;
-        clk <= 1;
-        #5;
-        clk <= 0;
-        #5;
+        for (i = 0; i < 20; i = i + 1)
+        begin
+            #5 clk <= ~clk;
+        end
     end
 
     always @ (negedge clk)
