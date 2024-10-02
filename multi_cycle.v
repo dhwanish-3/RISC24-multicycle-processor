@@ -1,24 +1,22 @@
 // 4-stage multicycle
 // IF&ID, ALU, MEM, WB
 
-
 //! Instantiation of modules inside always block is not allowed
 
 // ! This thing only for ADD
 
-// next pc logic missing
 
-module multi_cycle(input clk, reset, output [15:0] write_data,inout [15:0] data_addr, output mem_write, output [15:0]  instr, output reg [1:0]  state);
-	reg [15:0] pc;
+module multi_cycle(input clk, reset, output [15:0] write_data,inout [15:0] data_addr, output mem_write, output [15:0]  instr, srca, srcb, result, aluout, output reg [1:0]  state, output zero, carry);
+	wire [15:0] pc;
 	// wire [15:0] instr;
-	wire[15:0] read_data;
+	wire [15:0] read_data;
 	wire [1:0] alucontrol;
 
 	//* state control
 	// reg [1:0] state; // 00: IF & ID, 01: ALU, 10: MEM, 11: WB
 	always @ (posedge reset)
 	begin
-		pc <= 0;
+		// pc <= 0;
 		state <= 2'b00;
 	end
 
@@ -32,7 +30,7 @@ module multi_cycle(input clk, reset, output [15:0] write_data,inout [15:0] data_
 		else if (state == 2'b01)
 			if (instr[15:12] == 4'b1010 || instr[15:12] == 4'b1001) // LW & SW
 				state <= 2'b10;
-			else 
+			else
 				state <= 2'b11;
 		else if (state == 2'b10)
 			state <= 2'b11;
@@ -40,22 +38,32 @@ module multi_cycle(input clk, reset, output [15:0] write_data,inout [15:0] data_
 			state <= 2'b00;
 	end
 	wire [2:0] writereg; //? remember rc or ra decided by regdest
-	wire [15:0] srca, srcb, writedata, result, aluout; // read data
-	
+	// wire [15:0] srca, srcb;
+	// wire [15:0] writedata; // read data => not needed?
+	wire [15:0] pcnext, signimm, pcplus2, pcbranch, signimmsh;
+
 	// Instruction fetch
-	instr_memory imem(state, pc[5:1], instr);
+	instr_memory imem(state,clk, pc[5:1], instr);
 
 	// Instruction Decode 
 	controller cntrl(state, instr[15:12], zero, memtoreg, memwrite, pcsrc, alusrc, regdst, regwrite, alucontrol);
 
+	// next PC
+	flipflop #(16) pc_reg(state, clk, reset, pcnext, pc); // updating pc
+	adder pcadd1(pc, 16'b10, pcplus2); // *PC + 2
+	sign_ext se(instr[5:0], signimm); // *sign extend
+	sl1 immsh(signimm, signimmsh); // shift left signimm
+	adder pcadd2(pcplus2, signimmsh, pcbranch);
+	mux2 #(16) pcbrmux(pcplus2, pcbranch, pcsrc, pcnext);
+	
 	// Reg file
 	mux2 #(3) writemux(instr[11:9], instr[5:3], regdst, writereg); // *decide write reg
 	mux2 #(16) resultmux(aluout, read_data, memtoreg, result);
-	regfile _reg(state, clk, reset, regwrite, instr[11:9], instr[8:6], writereg, write_data, srca, srcb); // !have to change srcb to writereg
+	regfile _reg(state, clk, reset, regwrite, instr[11:9], instr[8:6], writereg, result, srca, write_data); // !have to change srcb to writereg
 
 	// ALU
-	// mux2 #(16) srcbmux(writedata, sign_ext, alusrc, srcb); // !decides using alusrc b/w sign_ext(not there) & read data 2
-	alu alu1(state, srca, srcb, alucontrol, write_data, zero, carry);
+	mux2 #(16) srcbmux(write_data, signimm, alusrc, srcb); // !decides using alusrc b/w sign_ext(not there) & read data 2
+	alu alu1(state, srca, srcb, alucontrol, aluout, zero, carry);
 
 	// MEM
 	data_memory dmem(state, clk, mem_write, data_addr, write_data, read_data);
@@ -75,7 +83,7 @@ module data_memory(input [1:0] state, input clk, we, input [15:0] addr, wd, outp
 endmodule
 
 
-module instr_memory(input [1:0] state, input [4:0] addr, output reg [15:0] rd);
+module instr_memory(input [1:0] state, input clk, input [4:0] addr, output reg [15:0] rd);
 	reg [15:0] RAM[31:0]; // 32 registers of 16 bits
 	initial
 		begin
@@ -94,7 +102,7 @@ module regfile(
 		output reg [15:0] rd1, rd2);
 	reg [15:0] register_file[7:0];
 	//* NOTE: always block has only one statement, posedge of clk means at the end of the current cycle
-	always @ (posedge reset)
+	initial
 	begin
 		register_file[0] = 0;
 		register_file[1] = 11;
@@ -105,15 +113,14 @@ module regfile(
 		register_file[6] = 66;
 		register_file[7] = 77;
 	end
-	//? dont know where to put these 2 lines below
-	
 	
 	always @ (posedge clk, state)
 	begin
 		if (state == 2'b00) // IF & ID or WB
-			if (we) register_file[wa] <= wd;
-			 rd1 <= register_file[ra1];
-			 rd2 <= register_file[ra2];
+		begin
+			rd1 <= register_file[ra1];
+			rd2 <= register_file[ra2];
+		end
 		if (state == 2'b11) // IF & ID or WB
 			if (we) register_file[wa] <= wd;
 	end
@@ -145,7 +152,8 @@ module decoder (input [1:0] state, input [3:0] op,
 	always @ (*) // * can be replaced by op (since it is the only input)
 		if (state == 2'b00) // IF & ID
 			case(op)
-				4'b00xx: controls <= 9'b1100000; // Rtype
+				4'b0000: controls <= 9'b1100000; // Rtype
+				4'b0010: controls <= 9'b1100000; // Rtype
 				4'b1010: controls <= 9'b1010011; // LW
 				4'b1001: controls <= 9'b0010100; // SW
 				4'b1011: controls <= 9'b0001000; // BEQ
@@ -174,14 +182,14 @@ module adder(input [15:0] a, b, output [15:0] y);
 endmodule
 
 module sl1 (input [15:0] a, output [15:0] y);
-	assign y = {a[13:0], 2'b00};
+	assign y = {a[14:0], 1'b0};// changed from 2 to 1
 endmodule
 
 module sign_ext(input [5:0] a, output [15:0] y);
 	assign y = {{9{a[5]}}, a};
 endmodule
 
-module d_flipflop # (parameter WIDTH=8) (input clk, reset, input [WIDTH-1:0] d, output reg [WIDTH-1:0] q);
+module flipflop # (parameter WIDTH=8) (input [1:0] state, input clk, reset, input [WIDTH-1:0] d, output reg [WIDTH-1:0] q);
 	always @ (posedge clk, posedge reset)
 		if (reset) q <= 0;
 		else q <= d;
