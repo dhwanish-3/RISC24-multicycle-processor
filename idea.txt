@@ -1,0 +1,10 @@
+Each cycle can only execute single stage since multicycle
+
+Maintain state update each time
+
+every stage takes 1 cycle of same interval
+
+state init = 00 (4 stages (IF & ID combined))
+after 1st cycle = 01 -> 10 -> 11
+
+Each negedge of clk state will move to next (state = state + 1)
