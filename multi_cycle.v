@@ -60,7 +60,8 @@ module multi_cycle(input clk, reset, output [15:0] write_data,inout [15:0] data_
 	mux2 #(3) writemux(instr[11:9], instr[5:3], regdst, writereg); // *decide write reg
 	mux2 #(16) resultmux(aluout, read_data, memtoreg, result);
 
-	mux2 #(1) carrycheckmux(1'b0, 1'b1, !instr[1:0] | carry, regwrite); // *decide regwrite
+	mux2 #(1) carrycheckmux(1'b0, 1'b1, !instr[13] & regwrite & (!instr[1] | carry), regwrite); // *decide regwrite for adc
+	mux2 #(1) zerocheckmux(1'b0, 1'b1, instr[13] & regwrite & (!instr[0] | zero), regwrite); // *decide regwrite for ndc
 	regfile _reg(state, clk, reset, regwrite, instr[11:9], instr[8:6], writereg, result, srca, write_data); // !have to change srcb to writereg
 
 	// ALU
@@ -107,8 +108,8 @@ module regfile(
 	initial
 	begin
 		register_file[0] = 0;
-		register_file[1] = 11;
-		register_file[2] = 22;
+		register_file[1] = 16'b1111111111111111;
+		register_file[2] = 16'b1111111111111111;
 		register_file[3] = 33;
 		register_file[4] = 44;
 		register_file[5] = 55;
