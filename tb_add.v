@@ -18,13 +18,37 @@
 // 0df8
 // 0ff8
 
+// -------------------------------------------------- //
+// load ra, rb, imm
+
+// load $1, $2, 1
+// 1010 001 010 000001 => a281
+
+// load $2, $1, 20
+// 1010 010 001 010100 => a454
+
+// ---------------------------------------------------- //
+
+// store $6, $1, 12
+// 1001 110 001 001100 => 9c4c
+
+// store $7, $7, 10
+// 1001 111 111 001010 => 9fca
+
+// Machine code
+// a28a
+// a454
+// 0df8
+// 0ff8
+
+
 module tb_add;
     reg clk, reset;
-    wire [15:0] writedata, dataaddr, instr, result, aluout, srca, srcb;
+    wire [15:0] writedata, readdata, instr, result, aluout, srca, srcb;
     wire[1:0] state;
-    wire memwrite, zero, carry;
+    wire memwrite, regwrite, zero, carry;
 
-    multi_cycle main(clk, reset, writedata, dataaddr, memwrite, instr, srca,srcb, result, aluout, state, zero, carry);
+    multi_cycle main(clk, reset, writedata,readdata, memwrite, regwrite, instr, srca,srcb, result, aluout, state, zero, carry);
 
     initial
     begin
@@ -36,7 +60,7 @@ module tb_add;
     initial
     begin
         clk <= 0;
-        for (i = 0; i < 30; i = i + 1)
+        for (i = 0; i < 20; i = i + 1)
         begin
             #10 clk <= ~clk;
         end
@@ -45,6 +69,6 @@ module tb_add;
     always @ (posedge clk)
         begin
             $display("Instruction: %h, state=%h", instr, state);
-            $display("Now: time=%0d, srca=%0d, srcb=%0d, aluout=%0d, result=%0d, zero=%b, carry=%b\n",$time, srca, srcb, aluout, result, zero, carry);
+            $display("Now: time=%0d, srca=%0d, srcb=%0d, aluout=%0d, result=%0d, mem_write=%0d, regwrite=%0d, write_data=%0d, read_data=%0d, zero=%b, carry=%b\n",$time, srca, srcb, aluout, result, memwrite, regwrite, writedata, readdata, zero, carry);
         end
 endmodule

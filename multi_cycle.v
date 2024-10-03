@@ -6,10 +6,10 @@
 // ! This thing only for ADD
 
 
-module multi_cycle(input clk, reset, output [15:0] write_data,inout [15:0] data_addr, output mem_write, output [15:0] instr, srca, srcb, result, aluout, output reg [1:0]  state, output zero, carry);
+module multi_cycle(input clk, reset, output [15:0] write_data, read_data, output memwrite, regwrite, output [15:0] instr, srca, srcb, result, aluout, output reg [1:0]  state, output zero, carry);
 	wire [15:0] pc;
 	// wire [15:0] instr;
-	wire [15:0] read_data;
+	// wire [15:0] read_data;
 	wire [1:0] alucontrol;
 
 	//* state control
@@ -33,13 +33,16 @@ module multi_cycle(input clk, reset, output [15:0] write_data,inout [15:0] data_
 			else
 				state <= 2'b11;
 		else if (state == 2'b10)
-			state <= 2'b11;
+		begin
+			if (instr[15:12] == 4'b1001)
+				state <= 2'b00;
+			else state <= 2'b11;
+		end
 		else if (state == 2'b11)
 			state <= 2'b00;
 	end
 	wire [2:0] writereg; //? remember rc or ra decided by regdest
 	// wire [15:0] srca, srcb;
-	// wire [15:0] writedata; // read data => not needed?
 	wire [15:0] pcnext, signimm, pcplus2, pcbranch, signimmsh;
 
 	// Instruction fetch
@@ -58,19 +61,20 @@ module multi_cycle(input clk, reset, output [15:0] write_data,inout [15:0] data_
 	
 	// Reg file
 	mux2 #(3) writemux(instr[11:9], instr[5:3], regdst, writereg); // *decide write reg
-	mux2 #(16) resultmux(aluout, read_data, memtoreg, result);
+	mux2 #(16) resultmux(aluout, read_data, memtoreg, result); // decide data to be written back
 
 	wire adcwrite, ndcwrite;
-	mux2 #(1) carrycheckmux(1'b0, 1'b1, !instr[13] & regwrite & (!instr[1] | carry), adcwrite); // *decide regwrite for adc
-	mux2 #(1) zerocheckmux(1'b0, 1'b1, instr[13] & regwrite & (!instr[0] | zero), ndcwrite); // *decide regwrite for ndc
-	regfile _reg(state, clk, reset, adcwrite | ndcwrite, instr[11:9], instr[8:6], writereg, result, srca, write_data); // !have to change srcb to writereg
+	mux2 #(1) carrycheckmux(1'b0, 1'b1, !instr[15] & !instr[14] & !instr[13] & !instr[12] & instr[1], adcwrite); // *decide if adc
+	mux2 #(1) zerocheckmux(1'b0, 1'b1, !instr[15] & !instr[14] & instr[13] & !instr[12] & instr[0], ndcwrite); // *decide if ndc
+	mux2 #(1) decidewritemux(1'b0, 1'b1, (!adcwrite & !ndcwrite) | (adcwrite & carry) | (ndcwrite & zero), regwrite); // decide regwrite
+	regfile register(state, clk, reset, regwrite, instr[8:6], instr[11:9], writereg, result, srca, write_data);
 
 	// ALU
 	mux2 #(16) srcbmux(write_data, signimm, alusrc, srcb); // !decides using alusrc b/w sign_ext(not there) & read data 2
 	alu alu1(state, srca, srcb, alucontrol, aluout, zero, carry);
 
 	// MEM
-	data_memory dmem(state, clk, mem_write, data_addr, write_data, read_data);
+	data_memory dmem(state, clk, memwrite, aluout, write_data, read_data);
 
 	// Write Back
 	//! What should I do? Sol: Dont do anything regfile writes itself at the end of cycle 
@@ -79,11 +83,22 @@ endmodule
 
 
 module data_memory(input [1:0] state, input clk, we, input [15:0] addr, wd, output [15:0] rd);
-	reg [15:0] RAM[31:0];
-	assign rd = RAM[addr[15:2]];
-	always @ (posedge clk) // ! may be wrong idk
-		if (we && state == 2'b01)
-			RAM[addr[15:2]] <= wd;
+	reg [15:0] RAM[255:0];
+	assign rd=RAM[addr];
+	// integer i;
+	// initial begin
+	// 	for (i = 0; i < 32; i = i + 1)
+	// 		RAM[i] <= 0;
+	// end
+	always @ (*) 
+	begin
+		// if (state == 2'b10)
+		begin
+			// rd <= RAM[addr];
+			if (we)
+				RAM[addr] <= wd;
+		end
+	end
 endmodule
 
 
