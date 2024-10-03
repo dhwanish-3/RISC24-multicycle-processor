@@ -1,11 +1,22 @@
-// nand rc, ra, rb;
+// nand rc, ra, rb
 
+// nand $1, $2, $4
 // 0010 001 010 100 0 00 => 22a0
+
+// nand $4, $1, $1
 // 0010 100 001 001 0 00 => 2848
+
+// nand $6, $7, $7
+// 0010 110 111 111 0 00 => 2df8
+
+// nand $7, $7, $7
+// 0010 111 111 111 0 00 => 2ff8
 
 // Machine code:
 // 22a0
 // 2848
+// 2df8
+// 2ff8
 
 module tb_add;
     reg clk, reset;
@@ -18,23 +29,22 @@ module tb_add;
     initial
     begin
         reset <= 1;
-        #21;
+        #10;
         reset <= 0;
     end
     integer i;
     initial
     begin
         clk <= 0;
-        for (i = 0; i < 20; i = i + 1)
+        for (i = 0; i < 30; i = i + 1)
         begin
-            #5 clk <= ~clk;
+            #10 clk <= ~clk;
         end
     end
 
-    always @ (negedge clk)
+    always @ (posedge clk)
         begin
-            $display("Instruction: %h", instr);
-            $display("State: %h", state);
-            $display("Now: srca=%h, srcb=%h, aluout=%h, write_data=%h, result=%h, zero=%h, carry=%h",srca, srcb, aluout, writedata, result, zero, carry);
+            $display("Instruction: %h, state=%h", instr, state);
+            $display("Now: time=%0d, srca=%0d, srcb=%0d, aluout=%0d, result=%0d, zero=%b, carry=%b\n",$time, srca, srcb, aluout, result, zero, carry);
         end
 endmodule

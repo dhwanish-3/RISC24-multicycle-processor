@@ -6,7 +6,7 @@
 // ! This thing only for ADD
 
 
-module multi_cycle(input clk, reset, output [15:0] write_data,inout [15:0] data_addr, output mem_write, output [15:0]  instr, srca, srcb, result, aluout, output reg [1:0]  state, output zero, carry);
+module multi_cycle(input clk, reset, output [15:0] write_data,inout [15:0] data_addr, output mem_write, output [15:0] instr, srca, srcb, result, aluout, output reg [1:0]  state, output zero, carry);
 	wire [15:0] pc;
 	// wire [15:0] instr;
 	wire [15:0] read_data;
@@ -60,9 +60,10 @@ module multi_cycle(input clk, reset, output [15:0] write_data,inout [15:0] data_
 	mux2 #(3) writemux(instr[11:9], instr[5:3], regdst, writereg); // *decide write reg
 	mux2 #(16) resultmux(aluout, read_data, memtoreg, result);
 
-	mux2 #(1) carrycheckmux(1'b0, 1'b1, !instr[13] & regwrite & (!instr[1] | carry), regwrite); // *decide regwrite for adc
-	mux2 #(1) zerocheckmux(1'b0, 1'b1, instr[13] & regwrite & (!instr[0] | zero), regwrite); // *decide regwrite for ndc
-	regfile _reg(state, clk, reset, regwrite, instr[11:9], instr[8:6], writereg, result, srca, write_data); // !have to change srcb to writereg
+	wire adcwrite, ndcwrite;
+	mux2 #(1) carrycheckmux(1'b0, 1'b1, !instr[13] & regwrite & (!instr[1] | carry), adcwrite); // *decide regwrite for adc
+	mux2 #(1) zerocheckmux(1'b0, 1'b1, instr[13] & regwrite & (!instr[0] | zero), ndcwrite); // *decide regwrite for ndc
+	regfile _reg(state, clk, reset, adcwrite | ndcwrite, instr[11:9], instr[8:6], writereg, result, srca, write_data); // !have to change srcb to writereg
 
 	// ALU
 	mux2 #(16) srcbmux(write_data, signimm, alusrc, srcb); // !decides using alusrc b/w sign_ext(not there) & read data 2
@@ -108,13 +109,13 @@ module regfile(
 	initial
 	begin
 		register_file[0] = 0;
-		register_file[1] = 16'b1111111111111111;
-		register_file[2] = 16'b1111111111111111;
+		register_file[1] = 11;
+		register_file[2] = 22;
 		register_file[3] = 33;
 		register_file[4] = 44;
 		register_file[5] = 55;
-		register_file[6] = 65;
-		register_file[7] = 10;
+		register_file[6] = 65535;
+		register_file[7] = 65535;
 	end
 	
 	always @ (posedge clk, state)
@@ -193,9 +194,9 @@ module sign_ext(input [5:0] a, output [15:0] y);
 endmodule
 
 module flipflop # (parameter WIDTH=8) (input [1:0] state, input clk, reset, input [WIDTH-1:0] d, output reg [WIDTH-1:0] q);
-	always @ (posedge clk, posedge reset)
+	always @ (posedge clk or posedge reset)
 		if (reset) q <= 0;
-		else q <= d;
+		else if (state == 2'b00) q <= d;
 endmodule
 
 module mux2 # (parameter WIDTH = 8)(input [WIDTH-1:0] d0, d1,input s,output [WIDTH-1:0] y);
