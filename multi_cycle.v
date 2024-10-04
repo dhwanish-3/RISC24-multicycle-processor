@@ -103,7 +103,7 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, signim
 	wire adcwrite, ndcwrite;
 	mux2 #(1) carrycheckmux(1'b0, 1'b1, !instr[15] & !instr[14] & !instr[13] & !instr[12] & instr[1], adcwrite); // *decide if adc
 	mux2 #(1) zerocheckmux(1'b0, 1'b1, !instr[15] & !instr[14] & instr[13] & !instr[12] & instr[0], ndcwrite); // *decide if ndc
-	mux2 #(1) decidewritemux(1'b0, 1'b1, (!adcwrite & !ndcwrite) | (adcwrite & carry) | (ndcwrite & zero), regwrite); // decide regwrite
+	mux2 #(1) decidewritemux(1'b0, 1'b1, (!adcwrite & !ndcwrite & regwrite) | (adcwrite & carry) | (ndcwrite & zero), regwrite); // decide regwrite
 	regfile register(state, clk, reset, regwrite, instr[8:6], instr[11:9], writereg, result, pc, srca, write_data);
 
 	// ALU
