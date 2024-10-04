@@ -18,7 +18,7 @@
 // 0df8
 // 0ff8
 
-// -------------------------------------------------- //
+// -------------------LOAD------------------------------- //
 // load ra, rb, imm
 
 // load $1, $2, 1
@@ -27,7 +27,7 @@
 // load $2, $1, 20
 // 1010 010 001 010100 => a454
 
-// ---------------------------------------------------- //
+// ------------------STORE---------------------------------- //
 
 // store $6, $1, 12
 // 1001 110 001 001100 => 9c4c
@@ -42,33 +42,48 @@
 // 0ff8
 
 
+// --------------- BEQ ---------------------//
+// Machine code:
+// b73c => 1011 011 100 111100 => beq $3, $4, 60
+// b744 => 1011 011 101 000100 => beq $3, $5, 4
+// 0000
+// 0000
+// 0000
+// 20c9
+// 20c8
+// dffc
+
+// --------------JAL ----------------------//
+// Machine code:
+// dff9 => 1101 111 111111001 => jal $7, -7
+
+
 module tb_add;
     reg clk, reset;
-    wire [15:0] writedata, readdata, instr, result, aluout, srca, srcb;
+    wire [15:0] writedata, readdata, instr, result, aluout, srca, srcb, pc, pcnext, pcbranch, signimmsh;
     wire[1:0] state;
     wire memwrite, regwrite, zero, carry;
 
-    multi_cycle main(clk, reset, writedata,readdata, memwrite, regwrite, instr, srca,srcb, result, aluout, state, zero, carry);
+    multi_cycle main(clk, reset, writedata,readdata,signimmsh, pcbranch, pc,pcnext, memwrite, regwrite, instr, srca,srcb, result, aluout, state, zero, carry);
 
     initial
     begin
-        reset <= 1;
-        #10;
-        reset <= 0;
+        #1200 $finish;
     end
-    integer i;
+
     initial
     begin
-        clk <= 0;
-        for (i = 0; i < 20; i = i + 1)
-        begin
-            #10 clk <= ~clk;
+        reset = 1;
+        clk = 0;
+        #10 reset = 0;
+        forever begin
+            #10 clk = ~clk;
         end
     end
 
     always @ (posedge clk)
         begin
-            $display("Instruction: %h, state=%h", instr, state);
-            $display("Now: time=%0d, srca=%0d, srcb=%0d, aluout=%0d, result=%0d, mem_write=%0d, regwrite=%0d, write_data=%0d, read_data=%0d, zero=%b, carry=%b\n",$time, srca, srcb, aluout, result, memwrite, regwrite, writedata, readdata, zero, carry);
+            // $display("Instruction: %h, state=%h", instr, state);
+            // $display("Now: time=%0d, srca=%0d, srcb=%0d, aluout=%0d, result=%0d, mem_write=%0d, regwrite=%0d, write_data=%0d, read_data=%0d, zero=%b, carry=%b, signimmsh=%0d, pcbranch=%0d, pc=%0d, pcnext=%0d\n",$time, srca, srcb, aluout, result, memwrite, regwrite, writedata, readdata, zero, carry, signimmsh,pcbranch, pc, pcnext);
         end
 endmodule

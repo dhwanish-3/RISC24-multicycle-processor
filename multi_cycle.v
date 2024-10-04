@@ -5,9 +5,8 @@
 
 // ! This thing only for ADD
 
-
-module multi_cycle(input clk, reset, output [15:0] write_data, read_data, output memwrite, regwrite, output [15:0] instr, srca, srcb, result, aluout, output reg [1:0]  state, output zero, carry);
-	wire [15:0] pc;
+module multi_cycle(input clk, reset, output [15:0] write_data, read_data, signimm_jal, pcbranch, pc, pcnext, output memwrite, regwrite, output [15:0] instr, srca, srcb, result, aluout, output reg [1:0]  state, output zero, carry);
+	// wire [15:0] pc;
 	// wire [15:0] instr;
 	// wire [15:0] read_data;
 	wire [1:0] alucontrol;
@@ -16,9 +15,44 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, output
 	// reg [1:0] state; // 00: IF & ID, 01: ALU, 10: MEM, 11: WB
 	always @ (posedge reset)
 	begin
-		// pc <= 0;
 		state <= 2'b00;
 	end
+
+	always @(posedge clk) begin
+		if (state==2'b00)
+		begin
+        casex({instr[15:12], instr[1:0]})
+            6'b000000: begin
+                $display("Time: %0d ADD R%d, R%d, R%d ZERO: %b, CARRY: %b", $time, instr[11:9], instr[8:6], instr[5:3], zero, carry);
+            end
+            6'b000010: begin
+                $display("Time: %0d ADC R%d, R%d, R%d ZERO: %b, CARRY: %b", $time, instr[11:9], instr[8:6], instr[5:3], zero, carry);
+            end
+            6'b001000: begin
+                $display("Time: %0d NDU R%d, R%d, R%d ZERO: %b, CARRY: %b", $time, instr[11:9], instr[8:6], instr[5:3], zero, carry);
+            end
+            6'b001001: begin
+                $display("Time: %0d NDZ R%d, R%d, R%d ZERO: %b, CARRY: %b", $time, instr[11:9], instr[8:6], instr[5:3], zero, carry);
+            end
+            6'b1010??: begin
+                $display("Time: %0d LW R%d, R%d, Imm: %b  ZERO: %b, CARRY: %b", $time, instr[11:9], instr[8:6], instr[5:0], zero, carry);
+            end
+            6'b1001??: begin
+                $display("Time: %0d SW R%d, R%d, Imm: %b  ZERO: %b, CARRY: %b", $time, instr[11:9], instr[8:6], instr[5:0], zero, carry);
+            end
+            6'b1011??: begin
+                $display("Time: %0d BEQ R%d, R%d, Imm: %b  ZERO: %b, CARRY: %b", $time, instr[11:9], instr[8:6], instr[5:0], zero, carry);
+            end
+            6'b1101??: begin
+                $display("Time: %0d JAL R%d, Imm: %b ZERO: %b, CARRY: %b", $time, instr[11:9], instr[8:0], zero, carry);
+            end
+        endcase
+		end
+    end
+
+    always @(posedge clk) begin
+        $display("-----------------------------------------------");
+    end
 
 	always @ (posedge clk)
 	begin
@@ -33,41 +67,44 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, output
 			else
 				state <= 2'b11;
 		else if (state == 2'b10)
-		begin
-			if (instr[15:12] == 4'b1001)
-				state <= 2'b00;
-			else state <= 2'b11;
-		end
+			state <= 2'b11;
 		else if (state == 2'b11)
 			state <= 2'b00;
 	end
 	wire [2:0] writereg; //? remember rc or ra decided by regdest
 	// wire [15:0] srca, srcb;
-	wire [15:0] pcnext, signimm, pcplus2, pcbranch, signimmsh;
+	wire [15:0] signimm, pcplus1;
 
 	// Instruction fetch
-	instr_memory imem(state,clk, pc[5:1], instr);
+	instr_memory imem(state,clk, pc, instr);
 
 	// Instruction Decode 
-	controller cntrl(state, instr[15:12], zero, memtoreg, memwrite, pcsrc, alusrc, regdst, regwrite, alucontrol);
+	controller cntrl(state, instr[15:12], zero, memtoreg, memwrite, branch, pcsrc, alusrc, regdst, regwrite, jal, alucontrol);
 
 	// next PC
+	// next_pc_logic logic1(pc, instr, zero, branch, jal, pcnext);
 	flipflop #(16) pc_reg(state, clk, reset, pcnext, pc); // updating pc
-	adder pcadd1(pc, 16'b10, pcplus2); // *PC + 2
+	adder pcadd1(pc, 16'b01, pcplus1); // *PC + 1
 	sign_ext se(instr[5:0], signimm); // *sign extend
-	sl1 immsh(signimm, signimmsh); // shift left signimm
-	adder pcadd2(pcplus2, signimmsh, pcbranch);
-	mux2 #(16) pcbrmux(pcplus2, pcbranch, pcsrc, pcnext);
+	sign_ext_jal se_jal(instr[8:0], signimm_jal);
+
+	wire [15:0] immediate;
+	mux2 #(16) jal_branch_mux(signimm, signimm_jal, jal, immediate);
+	adder pcadd2(pc, immediate, pcbranch);
+	mux2 #(16) pcbrmux(pcplus1, pcbranch,  pcsrc, pcnext);
 	
 	// Reg file
+	wire [15:0] result_temp;
 	mux2 #(3) writemux(instr[11:9], instr[5:3], regdst, writereg); // *decide write reg
-	mux2 #(16) resultmux(aluout, read_data, memtoreg, result); // decide data to be written back
+	mux2 #(16) resultmux(aluout, read_data, memtoreg, result_temp); // decide data to be written back
+	
+	mux2 #(16) jalwritemux(result_temp, pcplus1, jal, result);
 
 	wire adcwrite, ndcwrite;
 	mux2 #(1) carrycheckmux(1'b0, 1'b1, !instr[15] & !instr[14] & !instr[13] & !instr[12] & instr[1], adcwrite); // *decide if adc
 	mux2 #(1) zerocheckmux(1'b0, 1'b1, !instr[15] & !instr[14] & instr[13] & !instr[12] & instr[0], ndcwrite); // *decide if ndc
 	mux2 #(1) decidewritemux(1'b0, 1'b1, (!adcwrite & !ndcwrite) | (adcwrite & carry) | (ndcwrite & zero), regwrite); // decide regwrite
-	regfile register(state, clk, reset, regwrite, instr[8:6], instr[11:9], writereg, result, srca, write_data);
+	regfile register(state, clk, reset, regwrite, instr[8:6], instr[11:9], writereg, result, pc, srca, write_data);
 
 	// ALU
 	mux2 #(16) srcbmux(write_data, signimm, alusrc, srcb); // !decides using alusrc b/w sign_ext(not there) & read data 2
@@ -80,7 +117,6 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, output
 	//! What should I do? Sol: Dont do anything regfile writes itself at the end of cycle 
 	//? if I write reg instantiantion here, it will be another module not the one from above
 endmodule
-
 
 module data_memory(input [1:0] state, input clk, we, input [15:0] addr, wd, output [15:0] rd);
 	reg [15:0] RAM[255:0];
@@ -102,7 +138,7 @@ module data_memory(input [1:0] state, input clk, we, input [15:0] addr, wd, outp
 endmodule
 
 
-module instr_memory(input [1:0] state, input clk, input [4:0] addr, output reg [15:0] rd);
+module instr_memory(input [1:0] state, input clk, input [15:0] addr, output reg [15:0] rd);
 	reg [15:0] RAM[31:0]; // 32 registers of 16 bits
 	initial
 		begin
@@ -117,20 +153,20 @@ module regfile(
 		input [1:0] state,
 		input clk, reset, we,
 		input [2:0] ra1, ra2, wa,
-		input [15:0] wd,
+		input [15:0] wd, pc,
 		output reg [15:0] rd1, rd2);
 	reg [15:0] register_file[7:0];
 	//* NOTE: always block has only one statement, posedge of clk means at the end of the current cycle
 	initial
 	begin
 		register_file[0] = 0;
-		register_file[1] = 11;
-		register_file[2] = 22;
-		register_file[3] = 33;
-		register_file[4] = 44;
-		register_file[5] = 55;
-		register_file[6] = 65535;
-		register_file[7] = 65535;
+		register_file[1] = 4;
+		register_file[2] = 0;
+		register_file[3] = 0;
+		register_file[4] = 12;
+		register_file[5] = 0;
+		register_file[6] = 0;
+		register_file[7] = 0;
 	end
 	
 	always @ (posedge clk, state)
@@ -141,43 +177,47 @@ module regfile(
 			rd2 <= register_file[ra2];
 		end
 		if (state == 2'b11) // IF & ID or WB
+			register_file[0] = pc;
 			if (we) register_file[wa] <= wd;
 	end
+
+	always @(posedge clk) begin
+		if (state == 2'b00)
+    $display("Time: %0d Register values: R0 = %h, R1 = %h, R2 = %h, R3 = %h, R4 = %h, R5 = %h, R6 = %h, R7 = %h", 
+                $time, register_file[0], register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], register_file[6], register_file[7]);
+end
 
 endmodule
 
 module controller (input [1:0] state, input [3:0] op,
 					input zero,
-					output memtoreg, memwrite,
+					output memtoreg, memwrite, branch,
 					output pcsrc, alusrc,
-					output regdst, regwrite,
+					output regdst, regwrite, jal,
 					output [1:0] alucontrol);	
-	wire branch;
-	decoder md (state, op, memtoreg, memwrite, memread, branch, alusrc, regdst, regwrite);
+	decoder md (state, op, memtoreg, memwrite, memread, branch, alusrc, regdst, regwrite, jal);
 	aludecoder ad (state, op, alucontrol);
-	assign pcsrc = branch & zero;
+	assign pcsrc = jal | (branch & zero);
 endmodule
-
-//! use muxes u see in datapath inside the modules 
 
 module decoder (input [1:0] state, input [3:0] op,
 				output memtoreg, memwrite, memread,
 				output branch, alusrc,
-				output regdst, regwrite);
+				output regdst, regwrite, jal);
 				
-	reg [6:0] controls;
+	reg [7:0] controls;
 	// regdst decides b/w ra(0) & rc(1) registers to be the destination register
-	assign {regwrite, regdst, alusrc, branch, memwrite, memread, memtoreg} = controls;
+	assign {regwrite, regdst, alusrc, branch, memwrite, memread, memtoreg, jal} = controls;
 	always @ (*) // * can be replaced by op (since it is the only input)
 		if (state == 2'b00) // IF & ID
 			case(op)
-				4'b0000: controls <= 9'b1100000; // Rtype
-				4'b0010: controls <= 9'b1100000; // Rtype
-				4'b1010: controls <= 9'b1010011; // LW
-				4'b1001: controls <= 9'b0010100; // SW
-				4'b1011: controls <= 9'b0001000; // BEQ
-				4'b1101: controls <= 9'b1011000; //! JAL (this was updated)
-				default: controls  <= 9'bxxxxxxx; //???
+				4'b0000: controls <= 8'b11000000; // Rtype
+				4'b0010: controls <= 8'b11000000; // Rtype
+				4'b1010: controls <= 8'b10100110; // LW
+				4'b1001: controls <= 8'b00101000; // SW
+				4'b1011: controls <= 8'b00010000; // BEQ
+				4'b1101: controls <= 8'b10110001; //! JAL (this was updated)
+				default: controls  <= 8'bxxxxxxxx; //???
 			endcase
 endmodule
 
@@ -205,11 +245,15 @@ module sl1 (input [15:0] a, output [15:0] y);
 endmodule
 
 module sign_ext(input [5:0] a, output [15:0] y);
-	assign y = {{9{a[5]}}, a};
+	assign y = {{10{a[5]}}, a};
+endmodule
+
+module sign_ext_jal(input [8:0] a, output [15:0] y);
+	assign y = {{7{a[8]}}, a};
 endmodule
 
 module flipflop # (parameter WIDTH=8) (input [1:0] state, input clk, reset, input [WIDTH-1:0] d, output reg [WIDTH-1:0] q);
-	always @ (posedge clk or posedge reset)
+	always @ (negedge clk or posedge reset)
 		if (reset) q <= 0;
 		else if (state == 2'b00) q <= d;
 endmodule
@@ -218,38 +262,23 @@ module mux2 # (parameter WIDTH = 8)(input [WIDTH-1:0] d0, d1,input s,output [WID
 	assign y = s ? d1 : d0;
 endmodule
 
-module alu(state, i_data_A, i_data_B, i_alu_control, o_result, o_zero_flag, o_carry_flag);
-	input [1:0] state;
-	input [15:0] i_data_A;					// A operand 
-	input [15:0] i_data_B;					// B operand
-	output reg [15:0] o_result;				// ALU result
-	input [1:0] i_alu_control;				// Control signal
-
-	output reg o_zero_flag;				// Zero flag 
-	output reg o_carry_flag;               // Carry flag
-
-	always @(*) begin //? maybe change needed
+module alu(
+	input [1:0] state, input [15:0] i_data_A, i_data_B,
+	input [1:0] i_alu_control, output reg [15:0] o_result,
+	output reg o_zero_flag, o_carry_flag
+);
+	always @(*) begin
 		if (state == 2'b01) // ALU
-			casex(i_alu_control)
+			case(i_alu_control)
 				2'b00:	// ADD
-					begin
-						{o_carry_flag, o_result} = i_data_A + i_data_B;
-						o_zero_flag = ~|o_result;
-					end
+					{o_carry_flag, o_result} = i_data_A + i_data_B;
 				2'b01:	// SUB
-					begin
-						o_result = i_data_A - i_data_B;
-						o_zero_flag = ~|o_result;
-					end
+					o_result = i_data_A - i_data_B;
 				2'b10:	// NAND
-					begin
-						o_result = ~(i_data_A & i_data_B);
-						o_zero_flag = ~|o_result;
-					end
+					o_result = ~(i_data_A & i_data_B);
 				default:
-					begin
-						o_result = {16{1'bx}};	// x-state, (nor 1, nor 0)
-					end
+					o_result = {16{1'bx}};	// x-state, (nor 1, nor 0)
 			endcase
+			o_zero_flag = ~|o_result;
 		end
 endmodule
