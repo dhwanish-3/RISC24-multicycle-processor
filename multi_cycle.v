@@ -2,11 +2,11 @@
 // IF&ID, ALU, MEM, WB
 
 module multi_cycle(input clk, reset);
-	wire [15:0] pc, instr, pcnext, pcbranch, signimm_jal, result;
+	wire [15:0] pc, instr, pcbranch, result;
 	wire [15:0] read_data, write_data, aluout;
 	wire memwrite, regwrite;
 	wire [1:0] alucontrol;
-	reg [1:0] state;
+	wire [1:0] state;
 
 	always @(negedge clk) begin
 		if (state == 2'b00)
@@ -40,12 +40,46 @@ module multi_cycle(input clk, reset);
 		end
     end
 
-    // always @(posedge clk) begin
-    //     $display("-----------------------------------------------");
-    // end
-
-	// reg [1:0] state; // 00: IF & ID, 01: ALU, 10: MEM, 11: WB
 	//* state control
+	state_logic statecontrol(clk, reset, instr, state);
+
+	// Instruction Fetch
+	instr_memory imem(state,clk, pc, instr);
+
+	// Instruction Decode 
+	controller cntrl(state, instr[15:12], instr[1:0], zero, memtoreg, memwrite, branch, pcsrc, alusrc, regdst, regwrite, jal, alucontrol, adc, ndz);
+	
+	wire [2:0] writereg; //? remember rc or ra decided by regdest
+	wire [15:0] srca, srcb;
+	wire [15:0] pcnext, pcplus1, signimm;
+
+	// next PC
+	flipflop #(16) pc_reg(state, clk, reset, pcnext, pc); // updating pc
+	next_pc pc_logic(clk, reset, jal, pcsrc, state, pc, instr, pcplus1, signimm, pcnext);
+
+	// Reg file
+	wire [15:0] result_temp;
+	mux2 #(3) writemux(instr[11:9], instr[5:3], regdst, writereg); // *decide write reg
+	mux2 #(16) resultmux(aluout, read_data, memtoreg, result_temp); // decide data to be written back
+	
+	mux2 #(16) jalwritemux(result_temp, pcplus1, jal, result);
+
+	wire temp, regwriteFinal;
+	wire adcwrite, ndcwrite;
+	mux2 #(1) adccheckmux(regwrite, carry, adc, temp);
+	mux2 #(1) ndzcheckmux(temp, zero, ndz, regwriteFinal);
+	regfile register(state, clk, reset, regwriteFinal, instr[8:6], instr[11:9], writereg, result, pc, srca, write_data);
+
+	// ALU
+	mux2 #(16) srcbmux(write_data, signimm, alusrc, srcb); // !decides using alusrc b/w sign_ext(not there) & read data 2
+	alu alu1(state, srca, srcb, alucontrol, aluout, zero, carry);
+
+	// MEM
+	data_memory dmem(state, clk, memwrite, aluout, write_data, read_data);
+
+endmodule
+
+module state_logic(input clk, reset, input [15:0] instr, output reg [1:0] state);
 	always @ (posedge clk, posedge reset)
 	begin
 		if (reset)
@@ -67,48 +101,16 @@ module multi_cycle(input clk, reset);
 				state <= 2'b00;
 		end
 	end
+endmodule
 
-	wire [2:0] writereg; //? remember rc or ra decided by regdest
-	wire [15:0] srca, srcb;
-	wire [15:0] signimm, pcplus1;
-
-	// Instruction Fetch
-	instr_memory imem(state,clk, pc, instr);
-
-	// Instruction Decode 
-	controller cntrl(state, instr[15:12], instr[1:0], zero, memtoreg, memwrite, branch, pcsrc, alusrc, regdst, regwrite, jal, alucontrol, adc, ndz);
-
-	// next PC
-	flipflop #(16) pc_reg(state, clk, reset, pcnext, pc); // updating pc
+module next_pc(input clk, reset, jal, pcsrc, input [1:0] state, input [15:0] pc, instr, output [15:0] pcplus1, signimm, pcnext);
+	wire [15:0] immediate,  signimm_jal, pcbranch;
 	adder pcadd1(pc, 16'b01, pcplus1); // *PC + 1
 	sign_ext se(instr[5:0], signimm); // *sign extend for beq
 	sign_ext_jal se_jal(instr[8:0], signimm_jal); // *sign extend for jal
-
-	wire [15:0] immediate;
 	mux2 #(16) jal_branch_mux(signimm, signimm_jal, jal, immediate);
 	adder pcadd(pc, immediate, pcbranch);
 	mux2 #(16) pcbrmux(pcplus1, pcbranch,  pcsrc, pcnext);
-	
-	// Reg file
-	wire [15:0] result_temp;
-	mux2 #(3) writemux(instr[11:9], instr[5:3], regdst, writereg); // *decide write reg
-	mux2 #(16) resultmux(aluout, read_data, memtoreg, result_temp); // decide data to be written back
-	
-	mux2 #(16) jalwritemux(result_temp, pcplus1, jal, result);
-
-	wire temp, regwriteFinal;
-	wire adcwrite, ndcwrite;
-	mux2 #(1) adccheckmux(regwrite, carry, adc, temp);
-	mux2 #(1) ndzcheckmux(temp, zero, ndz, regwriteFinal);
-	regfile register(state, clk, reset, regwriteFinal, instr[8:6], instr[11:9], writereg, result, pc, srca, write_data);
-
-	// ALU
-	mux2 #(16) srcbmux(write_data, signimm, alusrc, srcb); // !decides using alusrc b/w sign_ext(not there) & read data 2
-	alu alu1(state, srca, srcb, alucontrol, aluout, zero, carry);
-
-	// MEM
-	data_memory dmem(state, clk, memwrite, aluout, write_data, read_data);
-
 endmodule
 
 module data_memory(input [1:0] state, input clk, we, input [15:0] addr, wd, output [15:0] rd);
