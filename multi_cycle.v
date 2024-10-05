@@ -11,13 +11,6 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, signim
 	// wire [15:0] read_data;
 	wire [1:0] alucontrol;
 
-	//* state control
-	// reg [1:0] state; // 00: IF & ID, 01: ALU, 10: MEM, 11: WB
-	always @ (posedge reset)
-	begin
-		state <= 2'b00;
-	end
-
 	always @(posedge clk) begin
 		if (state==2'b00)
 		begin
@@ -54,28 +47,36 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, signim
         $display("-----------------------------------------------");
     end
 
-	always @ (posedge clk)
+	//* state control
+	// reg [1:0] state; // 00: IF & ID, 01: ALU, 10: MEM, 11: WB
+
+	always @ (posedge clk, posedge reset)
 	begin
-		if (state == 2'b00) 
-			if (instr[15:12] == 4'b1101) // JAL
-				state <= 2'b11;
-			else
-				state <= 2'b01;
-		else if (state == 2'b01)
-			if (instr[15:12] == 4'b1010 || instr[15:12] == 4'b1001) // LW & SW
-				state <= 2'b10;
-			else
-				state <= 2'b11;
-		else if (state == 2'b10)
-			state <= 2'b11;
-		else if (state == 2'b11)
+		if (reset)
 			state <= 2'b00;
+		else begin
+			if (state == 2'b00) 
+				if (instr[15:12] == 4'b1101) // JAL
+					state <= 2'b11;
+				else
+					state <= 2'b01;
+			else if (state == 2'b01)
+				if (instr[15:12] == 4'b1010 || instr[15:12] == 4'b1001) // LW & SW
+					state <= 2'b10;
+				else
+					state <= 2'b11;
+			else if (state == 2'b10)
+				state <= 2'b11;
+			else if (state == 2'b11)
+				state <= 2'b00;
+		end
 	end
+
 	wire [2:0] writereg; //? remember rc or ra decided by regdest
 	// wire [15:0] srca, srcb;
 	wire [15:0] signimm, pcplus1;
 
-	// Instruction fetch
+	// Instruction Fetch
 	instr_memory imem(state,clk, pc, instr);
 
 	// Instruction Decode 
@@ -103,7 +104,7 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, signim
 	wire adcwrite, ndcwrite;
 	mux2 #(1) carrycheckmux(1'b0, 1'b1, !instr[15] & !instr[14] & !instr[13] & !instr[12] & instr[1], adcwrite); // *decide if adc
 	mux2 #(1) zerocheckmux(1'b0, 1'b1, !instr[15] & !instr[14] & instr[13] & !instr[12] & instr[0], ndcwrite); // *decide if ndc
-	mux2 #(1) decidewritemux(1'b0, 1'b1, (!adcwrite & !ndcwrite & regwrite) | (adcwrite & carry) | (ndcwrite & zero), regwrite); // decide regwrite
+	mux2 #(1) decidewritemux(1'b0, 1'b1, (!adcwrite & !ndcwrite) | (adcwrite & carry) | (ndcwrite & zero), regwrite); // decide regwrite
 	regfile register(state, clk, reset, regwrite, instr[8:6], instr[11:9], writereg, result, pc, srca, write_data);
 
 	// ALU
@@ -113,24 +114,15 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, signim
 	// MEM
 	data_memory dmem(state, clk, memwrite, aluout, write_data, read_data);
 
-	// Write Back
-	//! What should I do? Sol: Dont do anything regfile writes itself at the end of cycle 
-	//? if I write reg instantiantion here, it will be another module not the one from above
 endmodule
 
 module data_memory(input [1:0] state, input clk, we, input [15:0] addr, wd, output [15:0] rd);
 	reg [15:0] RAM[255:0];
 	assign rd=RAM[addr];
-	// integer i;
-	// initial begin
-	// 	for (i = 0; i < 32; i = i + 1)
-	// 		RAM[i] <= 0;
-	// end
 	always @ (*) 
 	begin
-		// if (state == 2'b10)
+		if (state == 2'b10)
 		begin
-			// rd <= RAM[addr];
 			if (we)
 				RAM[addr] <= wd;
 		end
@@ -163,7 +155,7 @@ module regfile(
 		register_file[1] = 4;
 		register_file[2] = 0;
 		register_file[3] = 0;
-		register_file[4] = 12;
+		register_file[4] = 0;
 		register_file[5] = 0;
 		register_file[6] = 0;
 		register_file[7] = 0;
