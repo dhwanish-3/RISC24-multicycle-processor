@@ -47,9 +47,8 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, signim
         $display("-----------------------------------------------");
     end
 
-	//* state control
 	// reg [1:0] state; // 00: IF & ID, 01: ALU, 10: MEM, 11: WB
-
+	//* state control
 	always @ (posedge clk, posedge reset)
 	begin
 		if (reset)
@@ -80,10 +79,9 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, signim
 	instr_memory imem(state,clk, pc, instr);
 
 	// Instruction Decode 
-	controller cntrl(state, instr[15:12], zero, memtoreg, memwrite, branch, pcsrc, alusrc, regdst, regwrite, jal, alucontrol);
+	controller cntrl(state, instr[15:12], instr[1:0], zero, memtoreg, memwrite, branch, pcsrc, alusrc, regdst, regwrite, jal, alucontrol, adc, ndz);
 
 	// next PC
-	// next_pc_logic logic1(pc, instr, zero, branch, jal, pcnext);
 	flipflop #(16) pc_reg(state, clk, reset, pcnext, pc); // updating pc
 	adder pcadd1(pc, 16'b01, pcplus1); // *PC + 1
 	sign_ext se(instr[5:0], signimm); // *sign extend
@@ -101,11 +99,14 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, signim
 	
 	mux2 #(16) jalwritemux(result_temp, pcplus1, jal, result);
 
+	wire temp, regwriteFinal;
 	wire adcwrite, ndcwrite;
-	mux2 #(1) carrycheckmux(1'b0, 1'b1, !instr[15] & !instr[14] & !instr[13] & !instr[12] & instr[1], adcwrite); // *decide if adc
-	mux2 #(1) zerocheckmux(1'b0, 1'b1, !instr[15] & !instr[14] & instr[13] & !instr[12] & instr[0], ndcwrite); // *decide if ndc
-	mux2 #(1) decidewritemux(1'b0, 1'b1, (!adcwrite & !ndcwrite) | (adcwrite & carry) | (ndcwrite & zero), regwrite); // decide regwrite
-	regfile register(state, clk, reset, regwrite, instr[8:6], instr[11:9], writereg, result, pc, srca, write_data);
+	// mux2 #(1) carrycheckmux(1'b0, 1'b1, !instr[15] & !instr[14] & !instr[13] & !instr[12] & instr[1], adcwrite); // *decide if adc
+	// mux2 #(1) zerocheckmux(1'b0, 1'b1, !instr[15] & !instr[14] & instr[13] & !instr[12] & instr[0], ndcwrite); // *decide if ndc
+	// mux2 #(1) decidewritemux(1'b0, 1'b1, (!adcwrite & !ndcwrite & regwrite) | (adcwrite & carry) | (ndcwrite & zero), regwriteFinal); // decide regwrite
+	mux2 #(1) adccheckmux(regwrite, carry, adc, temp);
+	mux2 #(1) ndzcheckmux(temp, zero, ndz, regwriteFinal);
+	regfile register(state, clk, reset, regwriteFinal, instr[8:6], instr[11:9], writereg, result, pc, srca, write_data);
 
 	// ALU
 	mux2 #(16) srcbmux(write_data, signimm, alusrc, srcb); // !decides using alusrc b/w sign_ext(not there) & read data 2
@@ -181,36 +182,53 @@ end
 
 endmodule
 
-module controller (input [1:0] state, input [3:0] op,
+module controller (input [1:0] state, input [3:0] op, input [1:0] cz,
 					input zero,
 					output memtoreg, memwrite, branch,
 					output pcsrc, alusrc,
 					output regdst, regwrite, jal,
-					output [1:0] alucontrol);	
-	decoder md (state, op, memtoreg, memwrite, memread, branch, alusrc, regdst, regwrite, jal);
+					output [1:0] alucontrol,
+					output adc, ndz
+					);	
+	decoder md (state, op, cz, memtoreg, memwrite, memread, branch, alusrc, regdst, regwrite, jal, adc, ndz);
 	aludecoder ad (state, op, alucontrol);
 	assign pcsrc = jal | (branch & zero);
 endmodule
 
-module decoder (input [1:0] state, input [3:0] op,
+module decoder (input [1:0] state, input [3:0] op, input [1:0] cz,
 				output memtoreg, memwrite, memread,
 				output branch, alusrc,
-				output regdst, regwrite, jal);
+				output regdst, regwrite, jal,
+				output reg adc, ndz);
 				
 	reg [7:0] controls;
 	// regdst decides b/w ra(0) & rc(1) registers to be the destination register
 	assign {regwrite, regdst, alusrc, branch, memwrite, memread, memtoreg, jal} = controls;
 	always @ (*) // * can be replaced by op (since it is the only input)
 		if (state == 2'b00) // IF & ID
+		begin
+			adc <= 0;
+			ndz <= 0;
 			case(op)
-				4'b0000: controls <= 8'b11000000; // Rtype
-				4'b0010: controls <= 8'b11000000; // Rtype
+				4'b0000: begin
+					controls <= 8'b11000000; // Rtype
+					case(cz)
+						2'b10: adc <= 1;
+					endcase
+				end
+				4'b0010: begin
+					controls <= 8'b11000000; // Rtype
+					case(cz)
+						2'b01: ndz <= 1;
+					endcase
+				end
 				4'b1010: controls <= 8'b10100110; // LW
 				4'b1001: controls <= 8'b00101000; // SW
 				4'b1011: controls <= 8'b00010000; // BEQ
 				4'b1101: controls <= 8'b10110001; //! JAL (this was updated)
 				default: controls  <= 8'bxxxxxxxx; //???
 			endcase
+		end
 endmodule
 
 module aludecoder (input [1:0] state, input [3:0] opcode,
