@@ -1,18 +1,15 @@
 // 4-stage multicycle
 // IF&ID, ALU, MEM, WB
 
-//! Instantiation of modules inside always block is not allowed
-
-// ! This thing only for ADD
-
-module multi_cycle(input clk, reset, output [15:0] write_data, read_data, signimm_jal, pcbranch, pc, pcnext, output memwrite, regwrite, output [15:0] instr, srca, srcb, result, aluout, output reg [1:0]  state, output zero, carry);
-	// wire [15:0] pc;
-	// wire [15:0] instr;
-	// wire [15:0] read_data;
+module multi_cycle(input clk, reset);
+	wire [15:0] pc, instr, pcnext, pcbranch, signimm_jal, result;
+	wire [15:0] read_data, write_data, aluout;
+	wire memwrite, regwrite;
 	wire [1:0] alucontrol;
+	reg [1:0] state;
 
-	always @(posedge clk) begin
-		if (state==2'b00)
+	always @(negedge clk) begin
+		if (state == 2'b00)
 		begin
         casex({instr[15:12], instr[1:0]})
             6'b000000: begin
@@ -43,9 +40,9 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, signim
 		end
     end
 
-    always @(posedge clk) begin
-        $display("-----------------------------------------------");
-    end
+    // always @(posedge clk) begin
+    //     $display("-----------------------------------------------");
+    // end
 
 	// reg [1:0] state; // 00: IF & ID, 01: ALU, 10: MEM, 11: WB
 	//* state control
@@ -72,7 +69,7 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, signim
 	end
 
 	wire [2:0] writereg; //? remember rc or ra decided by regdest
-	// wire [15:0] srca, srcb;
+	wire [15:0] srca, srcb;
 	wire [15:0] signimm, pcplus1;
 
 	// Instruction Fetch
@@ -84,12 +81,12 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, signim
 	// next PC
 	flipflop #(16) pc_reg(state, clk, reset, pcnext, pc); // updating pc
 	adder pcadd1(pc, 16'b01, pcplus1); // *PC + 1
-	sign_ext se(instr[5:0], signimm); // *sign extend
-	sign_ext_jal se_jal(instr[8:0], signimm_jal);
+	sign_ext se(instr[5:0], signimm); // *sign extend for beq
+	sign_ext_jal se_jal(instr[8:0], signimm_jal); // *sign extend for jal
 
 	wire [15:0] immediate;
 	mux2 #(16) jal_branch_mux(signimm, signimm_jal, jal, immediate);
-	adder pcadd2(pc, immediate, pcbranch);
+	adder pcadd(pc, immediate, pcbranch);
 	mux2 #(16) pcbrmux(pcplus1, pcbranch,  pcsrc, pcnext);
 	
 	// Reg file
@@ -101,9 +98,6 @@ module multi_cycle(input clk, reset, output [15:0] write_data, read_data, signim
 
 	wire temp, regwriteFinal;
 	wire adcwrite, ndcwrite;
-	// mux2 #(1) carrycheckmux(1'b0, 1'b1, !instr[15] & !instr[14] & !instr[13] & !instr[12] & instr[1], adcwrite); // *decide if adc
-	// mux2 #(1) zerocheckmux(1'b0, 1'b1, !instr[15] & !instr[14] & instr[13] & !instr[12] & instr[0], ndcwrite); // *decide if ndc
-	// mux2 #(1) decidewritemux(1'b0, 1'b1, (!adcwrite & !ndcwrite & regwrite) | (adcwrite & carry) | (ndcwrite & zero), regwriteFinal); // decide regwrite
 	mux2 #(1) adccheckmux(regwrite, carry, adc, temp);
 	mux2 #(1) ndzcheckmux(temp, zero, ndz, regwriteFinal);
 	regfile register(state, clk, reset, regwriteFinal, instr[8:6], instr[11:9], writereg, result, pc, srca, write_data);
@@ -147,22 +141,23 @@ module regfile(
 		input clk, reset, we,
 		input [2:0] ra1, ra2, wa,
 		input [15:0] wd, pc,
-		output reg [15:0] rd1, rd2);
+		output reg [15:0] rd1, rd2
+	);
 	reg [15:0] register_file[7:0];
 	//* NOTE: always block has only one statement, posedge of clk means at the end of the current cycle
-	initial
+	always @ (posedge reset)
 	begin
 		register_file[0] = 0;
 		register_file[1] = 4;
 		register_file[2] = 0;
-		register_file[3] = 0;
+		register_file[3] = 5;
 		register_file[4] = 0;
-		register_file[5] = 0;
+		register_file[5] = 5;
 		register_file[6] = 0;
 		register_file[7] = 0;
 	end
 	
-	always @ (posedge clk, state)
+	always @ (posedge clk)
 	begin
 		if (state == 2'b00) // IF & ID or WB
 		begin
@@ -170,15 +165,15 @@ module regfile(
 			rd2 <= register_file[ra2];
 		end
 		if (state == 2'b11) // IF & ID or WB
-			register_file[0] = pc;
+			register_file[0] <= pc;
 			if (we) register_file[wa] <= wd;
 	end
 
 	always @(posedge clk) begin
 		if (state == 2'b00)
-    $display("Time: %0d Register values: R0 = %h, R1 = %h, R2 = %h, R3 = %h, R4 = %h, R5 = %h, R6 = %h, R7 = %h", 
+    		$display("Time: %0d Register values: R0 = %h, R1 = %h, R2 = %h, R3 = %h, R4 = %h, R5 = %h, R6 = %h, R7 = %h\n", 
                 $time, register_file[0], register_file[1], register_file[2], register_file[3], register_file[4], register_file[5], register_file[6], register_file[7]);
-end
+	end
 
 endmodule
 
@@ -263,7 +258,7 @@ module sign_ext_jal(input [8:0] a, output [15:0] y);
 endmodule
 
 module flipflop # (parameter WIDTH=8) (input [1:0] state, input clk, reset, input [WIDTH-1:0] d, output reg [WIDTH-1:0] q);
-	always @ (negedge clk or posedge reset)
+	always @ (posedge clk or posedge reset)
 		if (reset) q <= 0;
 		else if (state == 2'b00) q <= d;
 endmodule

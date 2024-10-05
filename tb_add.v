@@ -64,7 +64,7 @@ module tb_add;
     wire[1:0] state;
     wire memwrite, regwrite, zero, carry;
 
-    multi_cycle main(clk, reset, writedata,readdata,signimmsh, pcbranch, pc,pcnext, memwrite, regwrite, instr, srca,srcb, result, aluout, state, zero, carry);
+    multi_cycle main(clk, reset);
 
     initial
     begin
