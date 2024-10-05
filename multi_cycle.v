@@ -258,7 +258,7 @@ module sign_ext_jal(input [8:0] a, output [15:0] y);
 endmodule
 
 module flipflop # (parameter WIDTH=8) (input [1:0] state, input clk, reset, input [WIDTH-1:0] d, output reg [WIDTH-1:0] q);
-	always @ (posedge clk or posedge reset)
+	always @ (negedge clk or posedge reset)
 		if (reset) q <= 0;
 		else if (state == 2'b00) q <= d;
 endmodule
