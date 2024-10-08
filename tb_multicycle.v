@@ -58,7 +58,7 @@
 // dff9 => 1101 111 111111001 => jal $7, -7
 
 
-module tb_add;
+module tb_multicycle;
     reg clk, reset;
     wire [15:0] writedata, readdata, instr, result, aluout, srca, srcb, pc, pcnext, pcbranch, signimmsh;
     wire[1:0] state;
@@ -68,7 +68,7 @@ module tb_add;
 
     initial
     begin
-        #1200 $finish;
+        #1040 $finish;
     end
 
     initial
@@ -81,9 +81,4 @@ module tb_add;
         end
     end
 
-    always @ (posedge clk)
-        begin
-            // $display("Instruction: %h, state=%h", instr, state);
-            // $display("Now: time=%0d, srca=%0d, srcb=%0d, aluout=%0d, result=%0d, mem_write=%0d, regwrite=%0d, write_data=%0d, read_data=%0d, zero=%b, carry=%b, signimmsh=%0d, pcbranch=%0d, pc=%0d, pcnext=%0d\n",$time, srca, srcb, aluout, result, memwrite, regwrite, writedata, readdata, zero, carry, signimmsh,pcbranch, pc, pcnext);
-        end
 endmodule
